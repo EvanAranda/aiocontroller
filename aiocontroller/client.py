@@ -10,17 +10,28 @@ from .endpoints import EndpointDefTable, BoundEndpoints
 log = logging.getLogger(__name__)
 
 
-class BaseClient:
-    def __init__(self, session: client.ClientSession):
-        self.session = session
-
-
 @dataclass
 class RequestBuilder(AbstractRequestBuilder):
+    http_method: str
+    route: str
     url_params: Dict = field(default_factory=dict)
     query: Dict = field(default_factory=dict)
     body: Dict = field(default_factory=dict)
     headers: Dict = field(default_factory=dict)
+
+
+class BaseClient:
+    def __init__(self, session: client.ClientSession):
+        self.session = session
+
+    @staticmethod
+    def build_request(endpoint: AbstractEndpointDef, args, kwargs) -> RequestBuilder:
+        req = RequestBuilder(endpoint.http_method, endpoint.route_path)
+        endpoint.signature.serialize_args(req, args, kwargs)
+        for name, val in req.url_params.items():
+            pattern = '{' + name + '}'
+            req.route = req.route.replace(pattern, val)
+        return req
 
 
 class ClientClassFactory(Generic[TController]):
@@ -49,20 +60,9 @@ class ClientClassFactory(Generic[TController]):
         """
 
         async def send(cls: BaseClient, *args, **kwargs):
-            req = RequestBuilder()
-            endpoint.signature.serialize_args(req, args, kwargs)
-            route_path = endpoint.route_path
-
-            for name, val in req.url_params.items():
-                route_path = route_path.replace(f'{{name}}', val)
-
-            async with cls.session.request(
-                    endpoint.http_method,
-                    route_path,
-                    params=req.query,
-                    json=req.body,
-                    headers=req.headers
-            ) as resp:
+            req = cls.build_request(endpoint, args, kwargs)
+            async with cls.session.request(req.http_method, req.route, params=req.query, json=req.body,
+                                           headers=req.headers) as resp:
                 resp.raise_for_status()
                 return await endpoint.signature.deserialize_result(resp)
 
@@ -73,7 +73,8 @@ ClientFactory = Callable[[client.ClientSession], TController]
 
 
 def client_factory(api_cls: Type[TController],
-                   endpoints: AbstractEndpointCollection[TController] | EndpointDefTable) -> ClientFactory[TController]:
+                   endpoints: AbstractEndpointCollection[TController] | EndpointDefTable
+                   ) -> Type[TController | BaseClient]:
     """
     Generate a client side implementation of the api_cls.
 

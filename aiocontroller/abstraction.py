@@ -11,6 +11,8 @@ TController = TypeVar('TController')
 
 
 class AbstractRequestBuilder(Protocol):
+    http_method: str
+    route: str
     url_params: Dict
     query: Dict
     body: Dict

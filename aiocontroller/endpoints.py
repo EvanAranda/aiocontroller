@@ -216,10 +216,11 @@ class JsonResultDef(AbstractResultDef):
 
 class Signature(AbstractSignature):
 
-    def __init__(self, url_params: Set[str], user_params: Mapping[str, Param], sig_info: inspect.Signature):
+    def __init__(self, url_params: Set[str], user_params: Mapping[str, Param], sig_info: inspect.Signature,
+                 is_static=False):
         self._params: Dict[str, BaseParamDef] = {}
         self._result: Optional[AbstractResultDef] = None
-        self._analyze_signature(url_params, user_params, sig_info)
+        self._analyze_signature(url_params, user_params, sig_info, is_static)
 
     @property
     def params(self) -> Sequence[AbstractParamDef]:
@@ -249,8 +250,14 @@ class Signature(AbstractSignature):
 
         return self.result.serialize(result)
 
-    def _analyze_signature(self, url_params: Set[str], user_params: Mapping[str, Param], sig: inspect.Signature):
-        sig_params = list(sig.parameters.values())[1:]
+    def _analyze_signature(self, url_params: Set[str], user_params: Mapping[str, Param],
+                           sig: inspect.Signature,
+                           is_static=False):
+        sig_params = list(sig.parameters.values())
+
+        # if this is an instance method, don't analyze the first parameter.
+        if not is_static:
+            sig_params = sig_params[1:]
 
         # construct params
         for i, p in enumerate(sig_params):
@@ -327,7 +334,8 @@ class EndpointDef(AbstractEndpointDef):
             self._signature = Signature(
                 set(re.findall(r'{(\w+)}', self.route_path)),
                 self.user_defined_params,
-                inspect.signature(self.controller_method))
+                inspect.signature(self.controller_method),
+                not inspect.ismethod(self.controller_method))
         return self._signature
 
 

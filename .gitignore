@@ -1,4 +1,5 @@
 .hatch
 dist
-*.egg-info
-*.idea
+.egg-info
+.idea
+.pytest_cache
