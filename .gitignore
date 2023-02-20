@@ -1,4 +1,4 @@
-venv
+.hatch
 dist
 *.egg-info
 *.idea

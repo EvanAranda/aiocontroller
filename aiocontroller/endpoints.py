@@ -14,6 +14,8 @@ from .abstraction import AbstractRequestBuilder, AbstractParamDef, AbstractResul
 
 log = logging.getLogger(__name__)
 
+HTTP_METHODS = {'get', 'post', 'put', 'delete'}
+
 
 class BaseParamDef(AbstractParamDef, ABC):
     def __init__(self, *,
@@ -26,9 +28,6 @@ class BaseParamDef(AbstractParamDef, ABC):
 
         if isinstance(default, AbstractParamDef):
             raise ValueError('default cannot be another parameter definition!')
-
-        # if type(None) in typing.get_args(p.annotation):
-        #     pdef.is_optional = True
 
         self._alias = alias
         self._default = default
@@ -224,7 +223,7 @@ class Signature(AbstractSignature):
 
     @property
     def params(self) -> Sequence[AbstractParamDef]:
-        return self._params.values()
+        return list(self._params.values())
 
     @property
     def result(self) -> Optional[AbstractResultDef]:
@@ -252,7 +251,6 @@ class Signature(AbstractSignature):
 
     def _analyze_signature(self, url_params: Set[str], user_params: Mapping[str, Param], sig: inspect.Signature):
         sig_params = list(sig.parameters.values())[1:]
-        # url_params = set(re.findall(r'{\w+}', route_path))
 
         # construct params
         for i, p in enumerate(sig_params):
@@ -299,6 +297,10 @@ class EndpointDef(AbstractEndpointDef):
 
     @http_method.setter
     def http_method(self, val: str):
+        val = val.lower()
+        if val not in HTTP_METHODS:
+            supported = ', '.join(HTTP_METHODS)
+            raise ValueError(f'{val} is not a supported http method ({supported}).')
         self._http_method = val
 
     @property
@@ -307,6 +309,8 @@ class EndpointDef(AbstractEndpointDef):
 
     @route_path.setter
     def route_path(self, val: str):
+        if not val.startswith('/'):
+            raise ValueError('route_path must begin with /.')
         self._route_path = val
 
     @property
@@ -325,9 +329,6 @@ class EndpointDef(AbstractEndpointDef):
                 self.user_defined_params,
                 inspect.signature(self.controller_method))
         return self._signature
-
-
-HTTP_METHODS = {'get', 'post', 'put', 'delete'}
 
 
 class EndpointDefTable(Mapping[Callable, EndpointDef]):

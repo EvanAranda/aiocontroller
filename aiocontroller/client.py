@@ -73,10 +73,14 @@ ClientFactory = Callable[[client.ClientSession], TController]
 
 
 def client_factory(api_cls: Type[TController],
-                   endpoints: AbstractEndpointCollection[TController] | EndpointDefTable
-                   ) -> ClientFactory[TController]:
+                   endpoints: AbstractEndpointCollection[TController] | EndpointDefTable) -> ClientFactory[TController]:
+    """
+    Generate a client side implementation of the api_cls.
+
+    :param api_cls: the abstract base class of the api shared by client and server.
+    :param endpoints: the endpoint definitions.
+    """
     if isinstance(endpoints, EndpointDefTable):
         endpoints = BoundEndpoints(api_cls, endpoints)
-    factory = ClientClassFactory(api_cls, endpoints)
-    client_cls = factory.create_client_class()
-    return lambda session: client_cls(session)
+    client_cls_factory = ClientClassFactory(api_cls, endpoints)
+    return client_cls_factory.create_client_class()

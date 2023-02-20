@@ -29,10 +29,10 @@ Issues = "https://github.com/EvanAranda/aiocontroller/issues"
 Source = "https://github.com/EvanAranda/aiocontroller"
 
 [tool.hatch.version]
-path = "src/aiocontroller/__about__.py"
+path = "aiocontroller/__about__.py"
 
 [tool.hatch.envs.default]
-type = "virtual"
+path = '.hatch'
 python = "python3.11"
 dependencies = [
     "aiohttp",
@@ -53,7 +53,7 @@ python = ["37", "38", "39", "310", "311"]
 branch = true
 parallel = true
 omit = [
-    "src/aiocontroller/__about__.py",
+    "aiocontroller/__about__.py",
 ]
 
 [tool.coverage.report]
