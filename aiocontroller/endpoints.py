@@ -4,11 +4,12 @@ import re
 from abc import ABC
 from dataclasses import dataclass
 from typing import Callable, Type, Any, Iterator, Optional, Dict, Mapping, \
-    MutableMapping, Sequence, MutableSequence, Set, Generic, Iterable
+    MutableMapping, Sequence, MutableSequence, Set, Generic, Iterable, Protocol, runtime_checkable, TypeVar
 
 from aiohttp import web, client
 from pydantic import BaseModel, parse_obj_as
 
+from exceptions import WrongReturnType
 from .abstraction import AbstractRequestBuilder, AbstractParamDef, AbstractResultDef, AbstractSignature, \
     AbstractEndpointDef, TController, AbstractEndpointCollection
 
@@ -214,6 +215,43 @@ class JsonResultDef(AbstractResultDef):
         return web.json_response(text=self.serialize_value(result))
 
 
+TInnerResult = TypeVar('TInnerResult')
+
+
+@runtime_checkable
+class CustomResult(Protocol[TInnerResult]):
+    def __into_web_response__(self) -> web.Response:
+        """
+        Convert this instance into an aiohttp.web.Response. (Server side)
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    async def __from_web_response__(cls, resp: client.ClientResponse) -> TInnerResult:
+        """
+        Convert a response from the server into the transferred instance. (Client side)
+        """
+        raise NotImplementedError()
+
+
+class CustomResultDef(AbstractResultDef):
+
+    def __init__(self, result_type: Type[CustomResult]):
+        self._type = result_type
+
+    @property
+    def type(self) -> Type:
+        return self._type
+
+    async def deserialize(self, resp: client.ClientResponse) -> Any:
+        return self._type.__from_web_response__(resp)
+
+    def serialize(self, result: Any) -> web.Response:
+        if not isinstance(result, self._type):
+            raise WrongReturnType(self._type, type(result))
+        return result.__into_web_response__()
+
+
 class Signature(AbstractSignature):
 
     def __init__(self, url_params: Set[str], user_params: Mapping[str, Param], sig_info: inspect.Signature):
@@ -276,12 +314,12 @@ class Signature(AbstractSignature):
         # construct result parser
         if sig.return_annotation is None or issubclass(sig.return_annotation, type(None)):
             self._result = None
-            return
-
-        if not issubclass(sig.return_annotation, BaseModel):
+        elif issubclass(sig.return_annotation, CustomResult):
+            self._result = CustomResultDef(sig.return_annotation)
+        elif issubclass(sig.return_annotation, BaseModel):
+            self._result = JsonResultDef(sig.return_annotation)
+        else:
             raise TypeError(f'endpoints are required to return None or pydantic.BaseModel.')
-
-        self._result = JsonResultDef(sig.return_annotation)
 
 
 class EndpointDef(AbstractEndpointDef):
@@ -373,7 +411,7 @@ class EndpointDefTable(Mapping[Callable, EndpointDef]):
     def query_param(self, name: str, **kwargs):
         return self.param(name, FromQuery, **kwargs)
 
-    def endpoint(self, method: str, path: str):
+    def endpoint(self, method: str, path: str, handler: Callable = None):
         method = method.lower()
         if method not in HTTP_METHODS:
             raise ValueError(f'{method} is not a valid http method')
@@ -387,16 +425,19 @@ class EndpointDefTable(Mapping[Callable, EndpointDef]):
             e.route_path = self._prefix + path
             return f
 
-        return ann
+        if handler is None:
+            return ann
 
-    def post(self, path: str):
-        return self.endpoint('post', path)
+        ann(handler)
 
-    def put(self, path: str):
-        return self.endpoint('put', path)
+    def post(self, path: str, **kwargs):
+        return self.endpoint('post', path, **kwargs)
 
-    def get(self, path: str):
-        return self.endpoint('get', path)
+    def put(self, path: str, **kwargs):
+        return self.endpoint('put', path, **kwargs)
+
+    def get(self, path: str, **kwargs):
+        return self.endpoint('get', path, **kwargs)
 
 
 class BoundEndpoints(Generic[TController], AbstractEndpointCollection[TController], Iterable[AbstractEndpointDef]):

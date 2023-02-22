@@ -1,4 +1,4 @@
-from aiocontroller import EndpointDefTable, client_factory
+from aiocontroller import EndpointDefTable, client
 from aiocontroller.endpoints import FromUrl
 
 endpoints = EndpointDefTable()
@@ -26,7 +26,7 @@ def test_read_param():
     assert isinstance(arg_param, FromUrl)
     assert arg_param.payload_name == 'arg'
 
-    new_client = client_factory(Controller, endpoints)
+    new_client = client.client_factory(Controller, endpoints)
     req = new_client.build_request(endpoint, [1], {})
     assert req.url_params['arg'] == '1'
     assert req.route == '/api/1'
