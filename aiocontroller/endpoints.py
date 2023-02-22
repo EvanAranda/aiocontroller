@@ -9,9 +9,9 @@ from typing import Callable, Type, Any, Iterator, Optional, Dict, Mapping, \
 from aiohttp import web, client
 from pydantic import BaseModel, parse_obj_as
 
-from exceptions import WrongReturnType
 from .abstraction import AbstractRequestBuilder, AbstractParamDef, AbstractResultDef, AbstractSignature, \
     AbstractEndpointDef, TController, AbstractEndpointCollection
+from .exceptions import WrongReturnType
 
 log = logging.getLogger(__name__)
 
