@@ -59,7 +59,7 @@ class ControllerRoutesAdapter(Generic[TController], Iterable[web.AbstractRouteDe
                         result = await result
                     return self.create_response(endpoint, result)
                 except BaseException as e:
-                    return self.create_error_response(endpoint, e)
+                    return self.handle_exception(endpoint, e)
 
         return req_handler
 
@@ -84,6 +84,11 @@ class ControllerRoutesAdapter(Generic[TController], Iterable[web.AbstractRouteDe
         args, kwargs = [], {}
         await endpoint.signature.deserialize_args(req, args, kwargs)
         return args, kwargs
+
+    def handle_exception(self, endpoint: AbstractEndpointDef, e: BaseException) -> web.Response:
+        if isinstance(e, web.HTTPException):
+            raise
+        return self.create_error_response(endpoint, e)
 
 
 class StaticRoutesAdapter(ControllerRoutesAdapter):

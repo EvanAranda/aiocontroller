@@ -99,3 +99,17 @@ async def test_controller_mapped_handlers(aiohttp_client, app_factory: web.Appli
     res = await api.get('/custom/hello')
     assert res.status == 200
     assert (await MyCustomResult.__from_web_response__(res)) == 'hello'
+
+
+async def test_http_exceptions_pass_through(aiohttp_client):
+    endpoints = EndpointDefTable()
+
+    @endpoints.get('/')
+    async def handler() -> None:
+        raise web.HTTPNotFound()
+
+    app = web.Application()
+    app.add_routes(server.routes(endpoints))
+    api = await aiohttp_client(app)
+    resp = await api.get('/')
+    assert resp.status == 404
