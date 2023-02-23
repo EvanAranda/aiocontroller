@@ -77,8 +77,11 @@ class BaseParamDef(AbstractParamDef, ABC):
 
         return v
 
+    def _read_value(self, mapping: Mapping):
+        return mapping.get(self.payload_name)
+
     def _read(self, mapping: Mapping, args: MutableSequence, kwargs: MutableMapping):
-        val = mapping.get(self.payload_name)
+        val = self._read_value(mapping)
 
         if val is None and not self._is_optional:
             raise RuntimeError(f'request payload is missing a required parameter '
@@ -94,6 +97,9 @@ class BaseParamDef(AbstractParamDef, ABC):
         else:
             args.append(val)
 
+    def _write_value(self, mapping: MutableMapping, val):
+        mapping[self.payload_name] = val
+
     def _write(self, mapping: MutableMapping, args: Sequence, kwargs: Mapping):
         if self.is_kwarg:
             val = kwargs.get(self.name)
@@ -107,7 +113,8 @@ class BaseParamDef(AbstractParamDef, ABC):
             raise RuntimeError(f'arguments are missing a required parameter '
                                f'{self.name} ({self.payload_name})')
 
-        mapping[self.payload_name] = self.serialize_value(val)
+        val = self.serialize_value(val)
+        self._write_value(mapping, val)
 
 
 class FromQuery(BaseParamDef):
@@ -130,8 +137,30 @@ class FromBody(BaseParamDef):
     def __init__(self,
                  param_info: inspect.Parameter,
                  param_index: int,
+                 is_root=False,
                  **kwargs):
+        """
+        :param param_info: the inspected parameter
+        :param param_index: index of this parameter in the parameter list.
+        :param is_root: a true value indicates this parameter is the FULL body of the request, not just a field in the
+                        request body.
+        """
         super().__init__(param_info=param_info, param_index=param_index, **kwargs)
+        self.is_root = is_root
+
+    def _read_value(self, mapping: Mapping):
+        """
+        Return the (root) of the mapping, instead of a field from inside it.
+        """
+        if self.is_root:
+            return mapping
+        return super()._read_value(mapping)
+
+    def _write_value(self, mapping: MutableMapping, val):
+        if self.is_root:
+            mapping.update(val)
+        else:
+            super()._write_value(mapping, val)
 
     async def deserialize(self, req: web.Request, args: MutableSequence, kwargs: MutableMapping):
         # cache the result for other parameters.
@@ -173,7 +202,7 @@ class FromUrl(BaseParamDef):
 
 @dataclass
 class Param:
-    type: Callable[[...], AbstractParamDef]
+    type: Callable[[inspect.Parameter, int, ...], AbstractParamDef]
     kwargs: Any
 
     @staticmethod
@@ -305,7 +334,7 @@ class Signature(AbstractSignature):
                 pdef = pargs.type(**pargs.kwargs)
             else:
                 if pargs := user_params.get(p.name):
-                    pdef = pargs.type(**pargs.kwargs)
+                    pdef = pargs.type(p, i, **pargs.kwargs)
                 else:
                     pdef = FromBody(p, i)
 
