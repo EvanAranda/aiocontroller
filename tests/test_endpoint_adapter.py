@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import TypeVar, Callable, Awaitable
+from typing import TypeVar, Callable, Awaitable, Optional
 
 import pytest
 from aiohttp import client, web
 from di_ioc import ServiceContainer, auto
 from pydantic.main import BaseModel
 
-from aiocontroller import CustomResult, EndpointDefTable, server
+from aiocontroller import CustomResult, EndpointDefTable, server, client as api_client
 
 
 class MyModel(BaseModel):
@@ -113,3 +113,19 @@ async def test_http_exceptions_pass_through(aiohttp_client):
     api = await aiohttp_client(app)
     resp = await api.get('/')
     assert resp.status == 404
+
+
+def test_optional_parameters():
+    def handler(arg: int, optional_arg: Optional[str], optional_kwarg: Optional[str] = 'blah') -> None:
+        pass
+
+    endpoints = EndpointDefTable()
+    endpoints.get('/', handler=handler)
+
+    req = api_client.RequestBuilder('get', '/')
+    sig = endpoints[handler].signature
+    sig.serialize_args(req, [1, None], {})
+
+    assert req.body['arg'] == 1
+    assert req.body['optional_arg'] is None
+    assert req.body['optional_kwarg'] == 'blah'

@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 HTTP_METHODS = {'get', 'post', 'put', 'delete'}
 
 
+class _UNDEFINED:
+    pass
+
+
 class BaseParamDef(AbstractParamDef, ABC):
     def __init__(self, *,
                  param_info: inspect.Parameter,
@@ -25,7 +29,7 @@ class BaseParamDef(AbstractParamDef, ABC):
                  alias: str | None = None,
                  default: Any = None,
                  default_factory: Optional[Callable] = None,
-                 optional=False):
+                 optional: Optional[bool] = None):
 
         if isinstance(default, AbstractParamDef):
             raise ValueError('default cannot be another parameter definition!')
@@ -35,7 +39,11 @@ class BaseParamDef(AbstractParamDef, ABC):
         self._default_factory = default_factory
         self._parameter_info = param_info
         self._parameter_index = param_index
-        self._is_optional = optional
+        self._is_optional = \
+            optional or \
+            default is not None or \
+            default_factory is not None or \
+            self._parameter_info.default != inspect.Parameter.empty
 
     @property
     def is_kwarg(self) -> bool:
@@ -83,11 +91,10 @@ class BaseParamDef(AbstractParamDef, ABC):
     def _read(self, mapping: Mapping, args: MutableSequence, kwargs: MutableMapping):
         val = self._read_value(mapping)
 
-        if val is None and not self._is_optional:
-            raise RuntimeError(f'request payload is missing a required parameter '
-                               f'{self.name} ({self.payload_name})')
-
         if val is None:
+            if not self._is_optional:
+                raise RuntimeError(f'request payload is missing a required parameter '
+                                   f'{self.name} ({self.payload_name})')
             val = self.get_default_value()
         else:
             val = self.deserialize_value(val)
@@ -104,14 +111,16 @@ class BaseParamDef(AbstractParamDef, ABC):
         if self.is_kwarg:
             val = kwargs.get(self.name)
         else:
-            if len(args) - 1 < self._parameter_index:
-                val = self.get_default_value()
-            else:
+            if len(args) > self._parameter_index:
                 val = args[self._parameter_index]
+            else:
+                val = _UNDEFINED
 
-        if val is None and not self._is_optional:
-            raise RuntimeError(f'arguments are missing a required parameter '
-                               f'{self.name} ({self.payload_name})')
+        if val is _UNDEFINED:
+            if not self._is_optional:
+                raise RuntimeError(f'arguments are missing a required parameter '
+                                   f'{self.name} ({self.payload_name})')
+            val = self.get_default_value()
 
         val = self.serialize_value(val)
         self._write_value(mapping, val)
