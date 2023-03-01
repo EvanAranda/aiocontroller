@@ -51,8 +51,8 @@ class ControllerRoutesAdapter(Generic[TController], Iterable[web.AbstractRouteDe
     def create_req_handler(self, endpoint: AbstractEndpointDef):
         async def req_handler(req: web.Request) -> web.Response:
             with request_scope(req):
-                controller = self.create_controller(req)
                 try:
+                    controller = self.create_controller(req)
                     args, kwargs = await self.create_args(endpoint, req)
                     result = self.call_handler_method(endpoint, controller, args, kwargs)
                     if inspect.isawaitable(result):
