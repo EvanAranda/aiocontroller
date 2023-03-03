@@ -1,10 +1,9 @@
 import inspect
 import logging
 import re
+import typing as t
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, Type, Any, Iterator, Optional, Dict, Mapping, \
-    MutableMapping, Sequence, MutableSequence, Set, Generic, Iterable, Protocol, runtime_checkable, TypeVar
 
 from aiohttp import web, client
 from pydantic import BaseModel, parse_obj_as
@@ -15,7 +14,7 @@ from .exceptions import WrongReturnType
 
 log = logging.getLogger(__name__)
 
-HTTP_METHODS = {'get', 'post', 'put', 'delete'}
+HTTP_METHODS = {'get', 'post', 'put', 'patch', 'delete'}
 
 
 class _UNDEFINED:
@@ -27,9 +26,9 @@ class BaseParamDef(AbstractParamDef, ABC):
                  param_info: inspect.Parameter,
                  param_index: int,
                  alias: str | None = None,
-                 default: Any = None,
-                 default_factory: Optional[Callable] = None,
-                 optional: Optional[bool] = None):
+                 default: t.Any = None,
+                 default_factory: t.Optional[t.Callable] = None,
+                 optional: t.Optional[bool] = None):
 
         if isinstance(default, AbstractParamDef):
             raise ValueError('default cannot be another parameter definition!')
@@ -54,8 +53,8 @@ class BaseParamDef(AbstractParamDef, ABC):
         return self._parameter_info.name
 
     @property
-    def type(self) -> Type:
-        return self._parameter_info.annotation or Any
+    def type(self) -> t.Type:
+        return self._parameter_info.annotation or t.Any
 
     @property
     def payload_name(self) -> str:
@@ -85,10 +84,10 @@ class BaseParamDef(AbstractParamDef, ABC):
 
         return v
 
-    def _read_value(self, mapping: Mapping):
+    def _read_value(self, mapping: t.Mapping):
         return mapping.get(self.payload_name)
 
-    def _read(self, mapping: Mapping, args: MutableSequence, kwargs: MutableMapping):
+    def _read(self, mapping: t.Mapping, args: t.MutableSequence, kwargs: t.MutableMapping):
         val = self._read_value(mapping)
 
         if val is None:
@@ -104,10 +103,10 @@ class BaseParamDef(AbstractParamDef, ABC):
         else:
             args.append(val)
 
-    def _write_value(self, mapping: MutableMapping, val):
+    def _write_value(self, mapping: t.MutableMapping, val):
         mapping[self.payload_name] = val
 
-    def _write(self, mapping: MutableMapping, args: Sequence, kwargs: Mapping):
+    def _write(self, mapping: t.MutableMapping, args: t.Sequence, kwargs: t.Mapping):
         if self.is_kwarg:
             val = kwargs.get(self.name)
         else:
@@ -134,10 +133,10 @@ class FromQuery(BaseParamDef):
                  **kwargs):
         super().__init__(param_info=param_info, param_index=param_index, **kwargs)
 
-    async def deserialize(self, req: web.Request, args: MutableSequence, kwargs: MutableMapping):
+    async def deserialize(self, req: web.Request, args: t.MutableSequence, kwargs: t.MutableMapping):
         self._read(req.query, args, kwargs)
 
-    def serialize(self, msg: AbstractRequestBuilder, args: Sequence, kwargs: Mapping):
+    def serialize(self, msg: AbstractRequestBuilder, args: t.Sequence, kwargs: t.Mapping):
         self._write(msg.query, args, kwargs)
 
 
@@ -157,7 +156,7 @@ class FromBody(BaseParamDef):
         super().__init__(param_info=param_info, param_index=param_index, **kwargs)
         self.is_root = is_root
 
-    def _read_value(self, mapping: Mapping):
+    def _read_value(self, mapping: t.Mapping):
         """
         Return the (root) of the mapping, instead of a field from inside it.
         """
@@ -165,13 +164,13 @@ class FromBody(BaseParamDef):
             return mapping
         return super()._read_value(mapping)
 
-    def _write_value(self, mapping: MutableMapping, val):
+    def _write_value(self, mapping: t.MutableMapping, val):
         if self.is_root:
             mapping.update(val)
         else:
             super()._write_value(mapping, val)
 
-    async def deserialize(self, req: web.Request, args: MutableSequence, kwargs: MutableMapping):
+    async def deserialize(self, req: web.Request, args: t.MutableSequence, kwargs: t.MutableMapping):
         # cache the result for other parameters.
         if not (body := req.get('_body')):
             if req.content_type == 'application/json':
@@ -182,7 +181,7 @@ class FromBody(BaseParamDef):
 
         self._read(body, args, kwargs)
 
-    def serialize(self, msg: AbstractRequestBuilder, args: Sequence, kwargs: Mapping):
+    def serialize(self, msg: AbstractRequestBuilder, args: t.Sequence, kwargs: t.Mapping):
         self._write(msg.body, args, kwargs)
 
 
@@ -194,10 +193,10 @@ class FromUrl(BaseParamDef):
                  **kwargs):
         super().__init__(param_info=param_info, param_index=param_index, **kwargs)
 
-    async def deserialize(self, req: web.Request, args: MutableSequence, kwargs: MutableMapping):
+    async def deserialize(self, req: web.Request, args: t.MutableSequence, kwargs: t.MutableMapping):
         self._read(req.match_info, args, kwargs)
 
-    def serialize(self, msg: AbstractRequestBuilder, args: Sequence, kwargs: Mapping):
+    def serialize(self, msg: AbstractRequestBuilder, args: t.Sequence, kwargs: t.Mapping):
         self._write(msg.url_params, args, kwargs)
 
     def serialize_value(self, v):
@@ -211,8 +210,8 @@ class FromUrl(BaseParamDef):
 
 @dataclass
 class Param:
-    type: Callable[[inspect.Parameter, int, ...], AbstractParamDef]
-    kwargs: Any
+    type: t.Callable[[inspect.Parameter, int, ...], AbstractParamDef]
+    kwargs: t.Any
 
     @staticmethod
     def Body(**kwargs):
@@ -228,20 +227,20 @@ class Param:
 
 
 class JsonResultDef(AbstractResultDef):
-    def __init__(self, return_type: Type[BaseModel]):
+    def __init__(self, return_type: t.Type[BaseModel]):
         self._type = return_type
 
     @property
-    def type(self) -> Type:
+    def type(self) -> t.Type:
         return self._type
 
-    def deserialize_value(self, value: Any) -> Any:
+    def deserialize_value(self, value: t.Any) -> t.Any:
         return parse_obj_as(self._type, value)
 
-    def serialize_value(self, value: Any) -> Any:
+    def serialize_value(self, value: t.Any) -> t.Any:
         return self._type.json(value)
 
-    async def deserialize(self, resp: client.ClientResponse) -> Any:
+    async def deserialize(self, resp: client.ClientResponse) -> t.Any:
         if resp.content_type == 'application/json':
             data = await resp.json()
         else:
@@ -249,15 +248,15 @@ class JsonResultDef(AbstractResultDef):
 
         return self.deserialize_value(data)
 
-    def serialize(self, result: Any) -> web.Response:
+    def serialize(self, result: t.Any) -> web.Response:
         return web.json_response(text=self.serialize_value(result))
 
 
-TInnerResult = TypeVar('TInnerResult')
+TInnerResult = t.TypeVar('TInnerResult')
 
 
-@runtime_checkable
-class CustomResult(Protocol[TInnerResult]):
+@t.runtime_checkable
+class CustomResult(t.Protocol[TInnerResult]):
     def __into_web_response__(self) -> web.Response:
         """
         Convert this instance into an aiohttp.web.Response. (Server side)
@@ -274,17 +273,17 @@ class CustomResult(Protocol[TInnerResult]):
 
 class CustomResultDef(AbstractResultDef):
 
-    def __init__(self, result_type: Type[CustomResult]):
+    def __init__(self, result_type: t.Type[CustomResult]):
         self._type = result_type
 
     @property
-    def type(self) -> Type:
+    def type(self) -> t.Type:
         return self._type
 
-    async def deserialize(self, resp: client.ClientResponse) -> Any:
+    async def deserialize(self, resp: client.ClientResponse) -> t.Any:
         return self._type.__from_web_response__(resp)
 
-    def serialize(self, result: Any) -> web.Response:
+    def serialize(self, result: t.Any) -> web.Response:
         if not isinstance(result, self._type):
             raise WrongReturnType(self._type, type(result))
         return result.__into_web_response__()
@@ -292,40 +291,40 @@ class CustomResultDef(AbstractResultDef):
 
 class Signature(AbstractSignature):
 
-    def __init__(self, url_params: Set[str], user_params: Mapping[str, Param], sig_info: inspect.Signature):
-        self._params: Dict[str, BaseParamDef] = {}
-        self._result: Optional[AbstractResultDef] = None
+    def __init__(self, url_params: t.Set[str], user_params: t.Mapping[str, Param], sig_info: inspect.Signature):
+        self._params: t.Dict[str, BaseParamDef] = {}
+        self._result: t.Optional[AbstractResultDef] = None
         self._analyze_signature(url_params, user_params, sig_info)
 
     @property
-    def params(self) -> Sequence[AbstractParamDef]:
+    def params(self) -> t.Sequence[AbstractParamDef]:
         return list(self._params.values())
 
     @property
-    def result(self) -> Optional[AbstractResultDef]:
+    def result(self) -> t.Optional[AbstractResultDef]:
         return self._result
 
-    async def deserialize_args(self, req: web.Request, args: MutableSequence, kwargs: MutableMapping):
+    async def deserialize_args(self, req: web.Request, args: t.MutableSequence, kwargs: t.MutableMapping):
         for param in self.params:
             await param.deserialize(req, args, kwargs)
 
-    def serialize_args(self, msg: AbstractRequestBuilder, args: Sequence, kwargs: Mapping):
+    def serialize_args(self, msg: AbstractRequestBuilder, args: t.Sequence, kwargs: t.Mapping):
         for param in self.params:
             param.serialize(msg, args, kwargs)
 
-    async def deserialize_result(self, resp: client.ClientResponse) -> Any:
+    async def deserialize_result(self, resp: client.ClientResponse) -> t.Any:
         if self.result is None or resp.content_length == 0:
             return None
 
         return await self.result.deserialize(resp)
 
-    def serialize_result(self, result: Any) -> web.Response:
+    def serialize_result(self, result: t.Any) -> web.Response:
         if self.result is None:
             return web.Response()
 
         return self.result.serialize(result)
 
-    def _analyze_signature(self, url_params: Set[str], user_params: Mapping[str, Param],
+    def _analyze_signature(self, url_params: t.Set[str], user_params: t.Mapping[str, Param],
                            sig: inspect.Signature):
         sig_params = list(sig.parameters.values())
 
@@ -362,12 +361,12 @@ class Signature(AbstractSignature):
 
 class EndpointDef(AbstractEndpointDef):
 
-    def __init__(self, controller_method: Callable):
+    def __init__(self, controller_method: t.Callable):
         self._controller_method = controller_method
         self._http_method = 'get'
         self._route_path = '/'
         # these are manually defined param definitions
-        self._user_defined_params: MutableMapping[str, Param] = {}
+        self._user_defined_params: t.MutableMapping[str, Param] = {}
         # these are defined by analyzing the method signature and including user defined.
         self._signature: Signature | None = None
 
@@ -394,11 +393,11 @@ class EndpointDef(AbstractEndpointDef):
         self._route_path = val
 
     @property
-    def controller_method(self) -> Callable:
+    def controller_method(self) -> t.Callable:
         return self._controller_method
 
     @property
-    def user_defined_params(self) -> MutableMapping[str, Param]:
+    def user_defined_params(self) -> t.MutableMapping[str, Param]:
         return self._user_defined_params
 
     @property
@@ -411,34 +410,37 @@ class EndpointDef(AbstractEndpointDef):
         return self._signature
 
 
-class EndpointDefTable(Mapping[Callable, EndpointDef]):
+class EndpointDefTable(t.Mapping[t.Callable, EndpointDef]):
 
     def __init__(self, prefix: str = ''):
         if prefix.endswith('/'):
             raise ValueError('endpoints prefix should not end with /')
 
-        self._endpoints: Dict[Callable, EndpointDef] = {}
+        self._endpoints: t.Dict[t.Callable, EndpointDef] = {}
         self._prefix = prefix
 
-    def __getitem__(self, f: Callable) -> EndpointDef:
+    def __getitem__(self, f: t.Callable) -> EndpointDef:
         if not (e := self._endpoints.get(f)):
             e = EndpointDef(f)
             self._endpoints[f] = e
         return e
 
-    def __iter__(self) -> Iterator[Callable]:
+    def __iter__(self) -> t.Iterator[t.Callable]:
         return iter(self._endpoints)
 
     def __len__(self) -> int:
         return len(self._endpoints)
 
-    def param(self, name: str, param_cls: Type[AbstractParamDef], **kwargs):
+    def param(self, name: str, param_cls: t.Type[AbstractParamDef], handler: t.Callable = None, **kwargs):
         def ann(f):
             e = self[f]
             e.user_defined_params[name] = Param(param_cls, kwargs)
             return f
 
-        return ann
+        if handler is None:
+            return ann
+        ann(handler)
+        return self
 
     def body_param(self, name: str, **kwargs):
         return self.param(name, FromBody, **kwargs)
@@ -449,11 +451,10 @@ class EndpointDefTable(Mapping[Callable, EndpointDef]):
     def query_param(self, name: str, **kwargs):
         return self.param(name, FromQuery, **kwargs)
 
-    def endpoint(self, method: str, path: str, handler: Callable = None):
+    def endpoint(self, method: str, path: str, handler: t.Callable = None):
         method = method.lower()
         if method not in HTTP_METHODS:
             raise ValueError(f'{method} is not a valid http method')
-
         if not path.startswith('/'):
             raise ValueError(f'endpoint path must begin with /')
 
@@ -465,8 +466,8 @@ class EndpointDefTable(Mapping[Callable, EndpointDef]):
 
         if handler is None:
             return ann
-
         ann(handler)
+        return self
 
     def post(self, path: str, **kwargs):
         return self.endpoint('post', path, **kwargs)
@@ -477,19 +478,25 @@ class EndpointDefTable(Mapping[Callable, EndpointDef]):
     def get(self, path: str, **kwargs):
         return self.endpoint('get', path, **kwargs)
 
+    def delete(self, path: str, **kwargs):
+        return self.endpoint('delete', path, **kwargs)
 
-class BoundEndpoints(Generic[TController], AbstractEndpointCollection[TController], Iterable[AbstractEndpointDef]):
+    def patch(self, path: str, **kwargs):
+        return self.endpoint('patch', path, **kwargs)
+
+
+class BoundEndpoints(t.Generic[TController], AbstractEndpointCollection[TController], t.Iterable[AbstractEndpointDef]):
     """
     Adapts an EndpointDefTable into an AbstractEndpointCollection.
     """
 
-    def __init__(self, controller_cls: Type[TController], table: EndpointDefTable):
+    def __init__(self, controller_cls: t.Type[TController], table: EndpointDefTable):
         self._controller_cls = controller_cls
         self._table = table
 
-    def __iter__(self) -> Iterator[AbstractEndpointDef]:
+    def __iter__(self) -> t.Iterator[AbstractEndpointDef]:
         return iter(self._table.values())
 
     @property
-    def controller_type(self) -> Type[TController]:
+    def controller_type(self) -> t.Type[TController]:
         return self._controller_cls
